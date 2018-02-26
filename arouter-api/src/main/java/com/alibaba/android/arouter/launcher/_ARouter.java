@@ -2,9 +2,13 @@ package com.alibaba.android.arouter.launcher;
 
 import android.app.Activity;
 import android.app.Application;
+import android.app.Fragment;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.support.v4.app.ActivityCompat;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -16,25 +20,22 @@ import com.alibaba.android.arouter.exception.NoRouteFoundException;
 import com.alibaba.android.arouter.facade.Postcard;
 import com.alibaba.android.arouter.facade.callback.InterceptorCallback;
 import com.alibaba.android.arouter.facade.callback.NavigationCallback;
+import com.alibaba.android.arouter.facade.service.AutowiredService;
 import com.alibaba.android.arouter.facade.service.DegradeService;
+import com.alibaba.android.arouter.facade.service.InterceptorService;
 import com.alibaba.android.arouter.facade.service.PathReplaceService;
 import com.alibaba.android.arouter.facade.template.ILogger;
-import com.alibaba.android.arouter.facade.template.ISyringe;
 import com.alibaba.android.arouter.thread.DefaultPoolExecutor;
 import com.alibaba.android.arouter.utils.Consts;
 import com.alibaba.android.arouter.utils.DefaultLogger;
-
-import org.apache.commons.lang3.StringUtils;
+import com.alibaba.android.arouter.utils.TextUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.concurrent.ThreadPoolExecutor;
 
-import static com.alibaba.android.arouter.utils.Consts.SUFFIX_AUTOWIRED;
-import static com.alibaba.android.arouter.utils.Consts.TAG;
-
 /**
- * ARouter core
+ * ARouter core (Facade patten)
  *
  * @author Alex <a href="mailto:zhilong.liu@aliyun.com">Contact me.</a>
  * @version 1.0
@@ -49,6 +50,8 @@ final class _ARouter {
     private volatile static boolean hasInit = false;
     private volatile static ThreadPoolExecutor executor = DefaultPoolExecutor.getInstance();
     private static Context mContext;
+
+    private static InterceptorService interceptorService;
 
     private _ARouter() {
     }
@@ -75,7 +78,7 @@ final class _ARouter {
             LogisticsCenter.suspend();
             logger.info(Consts.TAG, "ARouter destroy success!");
         } else {
-            throw new HandlerException("ARouter::destroy can be used in debug mode only!");
+            logger.error(Consts.TAG, "Destroy can be used in debug mode only!");
         }
     }
 
@@ -166,12 +169,9 @@ final class _ARouter {
     }
 
     static void inject(Object thiz) {
-        try {
-            Class autowiredClass = Class.forName(thiz.getClass().getName() + SUFFIX_AUTOWIRED);
-            ISyringe iSyringe = (ISyringe) autowiredClass.getConstructor().newInstance();
-            iSyringe.inject(thiz);
-        } catch (Exception ex) {
-            logger.error(TAG, "Autowired made exception, message [" + ex.getMessage() + "]");
+        AutowiredService autowiredService = ((AutowiredService) ARouter.getInstance().build("/arouter/service/autowired").navigation());
+        if (null != autowiredService) {
+            autowiredService.autowire(thiz);
         }
     }
 
@@ -179,7 +179,7 @@ final class _ARouter {
      * Build postcard by path and default group
      */
     protected Postcard build(String path) {
-        if (StringUtils.isEmpty(path)) {
+        if (TextUtils.isEmpty(path)) {
             throw new HandlerException(Consts.TAG + "Parameter is invalid!");
         } else {
             PathReplaceService pService = ARouter.getInstance().navigation(PathReplaceService.class);
@@ -194,7 +194,7 @@ final class _ARouter {
      * Build postcard by uri
      */
     protected Postcard build(Uri uri) {
-        if (null == uri || StringUtils.isEmpty(uri.toString())) {
+        if (null == uri || TextUtils.isEmpty(uri.toString())) {
             throw new HandlerException(Consts.TAG + "Parameter invalid!");
         } else {
             PathReplaceService pService = ARouter.getInstance().navigation(PathReplaceService.class);
@@ -209,7 +209,7 @@ final class _ARouter {
      * Build postcard by path and group
      */
     protected Postcard build(String path, String group) {
-        if (StringUtils.isEmpty(path) || StringUtils.isEmpty(group)) {
+        if (TextUtils.isEmpty(path) || TextUtils.isEmpty(group)) {
             throw new HandlerException(Consts.TAG + "Parameter is invalid!");
         } else {
             PathReplaceService pService = ARouter.getInstance().navigation(PathReplaceService.class);
@@ -224,13 +224,13 @@ final class _ARouter {
      * Extract the default group from path.
      */
     private String extractGroup(String path) {
-        if (StringUtils.isEmpty(path) || !path.startsWith("/")) {
+        if (TextUtils.isEmpty(path) || !path.startsWith("/")) {
             throw new HandlerException(Consts.TAG + "Extract the default group failed, the path must be start with '/' and contain more than 2 '/'!");
         }
 
         try {
             String defaultGroup = path.substring(1, path.indexOf("/", 1));
-            if (StringUtils.isEmpty(defaultGroup)) {
+            if (TextUtils.isEmpty(defaultGroup)) {
                 throw new HandlerException(Consts.TAG + "Extract the default group failed! There's nothing between 2 '/'!");
             } else {
                 return defaultGroup;
@@ -242,12 +242,19 @@ final class _ARouter {
     }
 
     static void afterInit() {
-        LogisticsCenter.initInterceptors();
+        // Trigger interceptor init, use byName.
+        interceptorService = (InterceptorService) ARouter.getInstance().build("/arouter/service/interceptor").navigation();
     }
 
     protected <T> T navigation(Class<? extends T> service) {
         try {
-            Postcard postcard = LogisticsCenter.buildProvider(service.getSimpleName());
+            Postcard postcard = LogisticsCenter.buildProvider(service.getName());
+
+            // Compatible 1.0.5 compiler sdk.
+            if (null == postcard) { // No service, or this service in old version.
+                postcard = LogisticsCenter.buildProvider(service.getSimpleName());
+            }
+
             LogisticsCenter.completion(postcard);
             return (T) postcard.getProvider();
         } catch (NoRouteFoundException ex) {
@@ -264,7 +271,7 @@ final class _ARouter {
      * @param requestCode RequestCode
      * @param callback    cb
      */
-    protected Object navigation(final Context context, final Postcard postcard, final int requestCode, NavigationCallback callback) {
+    protected Object navigation(final Context context, final Postcard postcard, final int requestCode, final NavigationCallback callback) {
         try {
             LogisticsCenter.completion(postcard);
         } catch (NoRouteFoundException ex) {
@@ -292,8 +299,8 @@ final class _ARouter {
             callback.onFound(postcard);
         }
 
-        if (!postcard.isGreenChannal()) {   // It must be run in async thread, maybe interceptor cost too mush time made ANR.
-            LogisticsCenter.interceptions(postcard, new InterceptorCallback() {
+        if (!postcard.isGreenChannel()) {   // It must be run in async thread, maybe interceptor cost too mush time made ANR.
+            interceptorService.doInterceptions(postcard, new InterceptorCallback() {
                 /**
                  * Continue process
                  *
@@ -301,7 +308,7 @@ final class _ARouter {
                  */
                 @Override
                 public void onContinue(Postcard postcard) {
-                    _navigation(context, postcard, requestCode);
+                    _navigation(context, postcard, requestCode, callback);
                 }
 
                 /**
@@ -311,24 +318,27 @@ final class _ARouter {
                  */
                 @Override
                 public void onInterrupt(Throwable exception) {
+                    if (null != callback) {
+                        callback.onInterrupt(postcard);
+                    }
+
                     logger.info(Consts.TAG, "Navigation failed, termination by interceptor : " + exception.getMessage());
                 }
             });
         } else {
-            return _navigation(context, postcard, requestCode);
+            return _navigation(context, postcard, requestCode, callback);
         }
 
         return null;
     }
 
-    private Object _navigation(final Context context, final Postcard postcard, final int requestCode) {
-        Context currentContext = null == context ? mContext : context;
+    private Object _navigation(final Context context, final Postcard postcard, final int requestCode, final NavigationCallback callback) {
+        final Context currentContext = null == context ? mContext : context;
 
         switch (postcard.getType()) {
             case ACTIVITY:
-
                 // Build intent
-                Intent intent = new Intent(currentContext, postcard.getDestination());
+                final Intent intent = new Intent(currentContext, postcard.getDestination());
                 intent.putExtras(postcard.getExtras());
 
                 // Set flags.
@@ -339,12 +349,25 @@ final class _ARouter {
                     intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 }
 
-                // Judgment activity start type.
-                if (requestCode > 0) {  // RequestCode exist, need startActivityForResult, so this context must son of activity.
-                    ((Activity) currentContext).startActivityForResult(intent, requestCode);
-                } else {
-                    currentContext.startActivity(intent);
-                }
+                // Navigation in main looper.
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (requestCode > 0) {  // Need start for result
+                            ActivityCompat.startActivityForResult((Activity) currentContext, intent, requestCode, postcard.getOptionsBundle());
+                        } else {
+                            ActivityCompat.startActivity(currentContext, intent, postcard.getOptionsBundle());
+                        }
+
+                        if ((0 != postcard.getEnterAnim() || 0 != postcard.getExitAnim()) && currentContext instanceof Activity) {    // Old version.
+                            ((Activity) currentContext).overridePendingTransition(postcard.getEnterAnim(), postcard.getExitAnim());
+                        }
+
+                        if (null != callback) { // Navigation over.
+                            callback.onArrival(postcard);
+                        }
+                    }
+                });
 
                 break;
             case PROVIDER:
@@ -352,6 +375,19 @@ final class _ARouter {
             case BOARDCAST:
             case CONTENT_PROVIDER:
             case FRAGMENT:
+                Class fragmentMeta = postcard.getDestination();
+                try {
+                    Object instance = fragmentMeta.getConstructor().newInstance();
+                    if (instance instanceof Fragment) {
+                        ((Fragment) instance).setArguments(postcard.getExtras());
+                    } else if (instance instanceof android.support.v4.app.Fragment) {
+                        ((android.support.v4.app.Fragment) instance).setArguments(postcard.getExtras());
+                    }
+
+                    return instance;
+                } catch (Exception ex) {
+                    logger.error(Consts.TAG, "Fetch fragment instance error, " + TextUtils.formatStackTrace(ex.getStackTrace()));
+                }
             case METHOD:
             case SERVICE:
             default:

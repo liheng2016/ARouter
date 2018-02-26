@@ -5,10 +5,10 @@ import android.net.Uri;
 import android.os.Bundle;
 
 import com.alibaba.android.arouter.facade.Postcard;
-import com.alibaba.android.arouter.facade.callback.NavigationCallback;
+import com.alibaba.android.arouter.facade.callback.NavCallback;
 import com.alibaba.android.arouter.launcher.ARouter;
 
-public class SchameFilterActivity extends Activity {
+public class SchemeFilterActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -16,14 +16,9 @@ public class SchameFilterActivity extends Activity {
 
 //        直接通过ARouter处理外部Uri
         Uri uri = getIntent().getData();
-        ARouter.getInstance().build(uri).navigation(this, new NavigationCallback() {
+        ARouter.getInstance().build(uri).navigation(this, new NavCallback() {
             @Override
-            public void onFound(Postcard postcard) {
-                finish();
-            }
-
-            @Override
-            public void onLost(Postcard postcard) {
+            public void onArrival(Postcard postcard) {
                 finish();
             }
         });

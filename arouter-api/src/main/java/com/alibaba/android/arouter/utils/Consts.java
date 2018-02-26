@@ -18,13 +18,9 @@ public final class Consts {
     public static final String DOT = ".";
     public static final String ROUTE_ROOT_PAKCAGE = "com.alibaba.android.arouter.routes";
 
-    // Java base type, copy from javax 'TypeKind'
-    public static final int DEF_BOOLEAN = 0;
-    public static final int DEF_BYTE = 1;
-    public static final int DEF_SHORT = 2;
-    public static final int DEF_INT = 3;
-    public static final int DEF_LONG = 4;
-    public static final int DEF_FLOAT = 6;
-    public static final int DEF_DOUBLE = 7;
-    public static final int DEF_STRING = 18;
+    public static final String AROUTER_SP_CACHE_KEY = "SP_AROUTER_CACHE";
+    public static final String AROUTER_SP_KEY_MAP = "ROUTER_MAP";
+
+    public static final String LAST_VERSION_NAME = "LAST_VERSION_NAME";
+    public static final String LAST_VERSION_CODE = "LAST_VERSION_CODE";
 }

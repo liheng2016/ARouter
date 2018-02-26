@@ -3,36 +3,32 @@ package com.alibaba.android.arouter.core;
 import android.content.Context;
 import android.net.Uri;
 
-import com.alibaba.android.arouter.base.UniqueKeyTreeMap;
 import com.alibaba.android.arouter.exception.HandlerException;
 import com.alibaba.android.arouter.exception.NoRouteFoundException;
 import com.alibaba.android.arouter.facade.Postcard;
-import com.alibaba.android.arouter.facade.callback.InterceptorCallback;
+import com.alibaba.android.arouter.facade.enums.TypeKind;
 import com.alibaba.android.arouter.facade.model.RouteMeta;
-import com.alibaba.android.arouter.facade.template.IInterceptor;
 import com.alibaba.android.arouter.facade.template.IInterceptorGroup;
 import com.alibaba.android.arouter.facade.template.IProvider;
 import com.alibaba.android.arouter.facade.template.IProviderGroup;
 import com.alibaba.android.arouter.facade.template.IRouteGroup;
 import com.alibaba.android.arouter.facade.template.IRouteRoot;
 import com.alibaba.android.arouter.launcher.ARouter;
-import com.alibaba.android.arouter.thread.CancelableCountDownLatch;
 import com.alibaba.android.arouter.utils.ClassUtils;
 import com.alibaba.android.arouter.utils.Consts;
+import com.alibaba.android.arouter.utils.MapUtils;
+import com.alibaba.android.arouter.utils.PackageUtils;
 import com.alibaba.android.arouter.utils.TextUtils;
 
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.collections4.MapUtils;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import static com.alibaba.android.arouter.launcher.ARouter.logger;
+import static com.alibaba.android.arouter.utils.Consts.AROUTER_SP_CACHE_KEY;
+import static com.alibaba.android.arouter.utils.Consts.AROUTER_SP_KEY_MAP;
 import static com.alibaba.android.arouter.utils.Consts.DOT;
 import static com.alibaba.android.arouter.utils.Consts.ROUTE_ROOT_PAKCAGE;
 import static com.alibaba.android.arouter.utils.Consts.SDK_NAME;
@@ -54,105 +50,62 @@ import static com.alibaba.android.arouter.utils.Consts.TAG;
  * @since 16/8/23 15:02
  */
 public class LogisticsCenter {
-    // Cache route and metas
-    private static Map<String, Class<? extends IRouteGroup>> groupsIndex = new HashMap<>();
-    private static Map<String, RouteMeta> routes = new HashMap<>();
-
-    // Cache provider
-    private static Map<Class, IProvider> providers = new HashMap<>();
-    private static Map<String, RouteMeta> providersIndex = new HashMap<>();
-
-    // Cache interceptor
-    private static Map<Integer, Class<? extends IInterceptor>> interceptorsIndex = new UniqueKeyTreeMap<>("More than one interceptors use same priority [%s]");
-    private static List<IInterceptor> interceptors = new ArrayList<>();
-
     private static Context mContext;
-
-    private static ThreadPoolExecutor executor;
-
-    private static boolean interceptorHasInit;
-
-    private static final Object interceptorInitLock = new Object();
+    static ThreadPoolExecutor executor;
 
     /**
      * LogisticsCenter init, load all metas in memory. Demand initialization
-     *
-     * @throws HandlerException
      */
     public synchronized static void init(Context context, ThreadPoolExecutor tpe) throws HandlerException {
         mContext = context;
         executor = tpe;
 
         try {
-            // These class was generate by arouter-compiler.
-            List<String> classFileNames = ClassUtils.getFileNameByPackageName(mContext, ROUTE_ROOT_PAKCAGE);
+            long startInit = System.currentTimeMillis();
+            Set<String> routerMap;
 
-            //
-            for (String className : classFileNames) {
+            // It will rebuild router map every times when debuggable.
+            if (ARouter.debuggable() || PackageUtils.isNewVersion(context)) {
+                logger.info(TAG, "Run with debug mode or new install, rebuild router map.");
+                // These class was generate by arouter-compiler.
+                routerMap = ClassUtils.getFileNameByPackageName(mContext, ROUTE_ROOT_PAKCAGE);
+                if (!routerMap.isEmpty()) {
+                    context.getSharedPreferences(AROUTER_SP_CACHE_KEY, Context.MODE_PRIVATE).edit().putStringSet(AROUTER_SP_KEY_MAP, routerMap).apply();
+                }
+
+                PackageUtils.updateVersion(context);    // Save new version name when router map update finish.
+            } else {
+                logger.info(TAG, "Load router map from cache.");
+                routerMap = new HashSet<>(context.getSharedPreferences(AROUTER_SP_CACHE_KEY, Context.MODE_PRIVATE).getStringSet(AROUTER_SP_KEY_MAP, new HashSet<String>()));
+            }
+
+            logger.info(TAG, "Find router map finished, map size = " + routerMap.size() + ", cost " + (System.currentTimeMillis() - startInit) + " ms.");
+            startInit = System.currentTimeMillis();
+
+            for (String className : routerMap) {
                 if (className.startsWith(ROUTE_ROOT_PAKCAGE + DOT + SDK_NAME + SEPARATOR + SUFFIX_ROOT)) {
                     // This one of root elements, load root.
-                    ((IRouteRoot) (Class.forName(className).getConstructor().newInstance())).loadInto(groupsIndex);
+                    ((IRouteRoot) (Class.forName(className).getConstructor().newInstance())).loadInto(Warehouse.groupsIndex);
                 } else if (className.startsWith(ROUTE_ROOT_PAKCAGE + DOT + SDK_NAME + SEPARATOR + SUFFIX_INTERCEPTORS)) {
                     // Load interceptorMeta
-                    ((IInterceptorGroup) (Class.forName(className).getConstructor().newInstance())).loadInto(interceptorsIndex);
+                    ((IInterceptorGroup) (Class.forName(className).getConstructor().newInstance())).loadInto(Warehouse.interceptorsIndex);
                 } else if (className.startsWith(ROUTE_ROOT_PAKCAGE + DOT + SDK_NAME + SEPARATOR + SUFFIX_PROVIDERS)) {
                     // Load providerIndex
-                    ((IProviderGroup) (Class.forName(className).getConstructor().newInstance())).loadInto(providersIndex);
+                    ((IProviderGroup) (Class.forName(className).getConstructor().newInstance())).loadInto(Warehouse.providersIndex);
                 }
             }
 
-            if (groupsIndex.size() == 0) {
+            logger.info(TAG, "Load root element finished, cost " + (System.currentTimeMillis() - startInit) + " ms.");
+
+            if (Warehouse.groupsIndex.size() == 0) {
                 logger.error(TAG, "No mapping files were found, check your configuration please!");
             }
 
             if (ARouter.debuggable()) {
-                logger.debug(TAG, String.format(Locale.getDefault(), "LogisticsCenter has already been loaded, GroupIndex[%d], InterceptorIndex[%d], ProviderIndex[%d]", groupsIndex.size(), interceptorsIndex.size(), providersIndex.size()));
+                logger.debug(TAG, String.format(Locale.getDefault(), "LogisticsCenter has already been loaded, GroupIndex[%d], InterceptorIndex[%d], ProviderIndex[%d]", Warehouse.groupsIndex.size(), Warehouse.interceptorsIndex.size(), Warehouse.providersIndex.size()));
             }
         } catch (Exception e) {
             throw new HandlerException(TAG + "ARouter init logistics center exception! [" + e.getMessage() + "]");
-        }
-    }
-
-    /**
-     * Init interceptors
-     */
-    public static void initInterceptors() {
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                if (MapUtils.isNotEmpty(interceptorsIndex)) {
-                    for (Map.Entry<Integer, Class<? extends IInterceptor>> entry : interceptorsIndex.entrySet()) {
-                        Class<? extends IInterceptor> interceptorClass = entry.getValue();
-                        try {
-                            IInterceptor iInterceptor = interceptorClass.getConstructor().newInstance();
-                            iInterceptor.init(mContext);
-                            interceptors.add(iInterceptor);
-                        } catch (Exception ex) {
-                            throw new HandlerException(TAG + "ARouter init interceptor error! name = [" + interceptorClass.getName() + "], reason = [" + ex.getMessage() + "]");
-                        }
-                    }
-
-                    interceptorHasInit = true;
-
-                    logger.info(TAG, "ARouter interceptors init over.");
-
-                    synchronized (interceptorInitLock) {
-                        interceptorInitLock.notifyAll();
-                    }
-                }
-            }
-        });
-    }
-
-    private static void checkInterceptorsInitStatus() {
-        synchronized (interceptorInitLock) {
-            while (!interceptorHasInit) {
-                try {
-                    interceptorInitLock.wait(10 * 1000);
-                } catch (InterruptedException e) {
-                    throw new HandlerException(TAG + "ARouter waiting for interceptor init error! reason = [" + e.getMessage() + "]");
-                }
-            }
         }
     }
 
@@ -163,7 +116,7 @@ public class LogisticsCenter {
      * @return postcard
      */
     public static Postcard buildProvider(String serviceName) {
-        RouteMeta meta = providersIndex.get(serviceName);
+        RouteMeta meta = Warehouse.providersIndex.get(serviceName);
 
         if (null == meta) {
             return null;
@@ -176,17 +129,15 @@ public class LogisticsCenter {
      * Completion the postcard by route metas
      *
      * @param postcard Incomplete postcard, should completion by this method.
-     * @throws NoRouteFoundException
-     * @throws HandlerException
      */
     public synchronized static void completion(Postcard postcard) {
         if (null == postcard) {
             throw new NoRouteFoundException(TAG + "No postcard!");
         }
 
-        RouteMeta routeMeta = routes.get(postcard.getPath());
+        RouteMeta routeMeta = Warehouse.routes.get(postcard.getPath());
         if (null == routeMeta) {    // Maybe its does't exist, or didn't load.
-            Class<? extends IRouteGroup> groupMeta = groupsIndex.get(postcard.getGroup());  // Load route meta.
+            Class<? extends IRouteGroup> groupMeta = Warehouse.groupsIndex.get(postcard.getGroup());  // Load route meta.
             if (null == groupMeta) {
                 throw new NoRouteFoundException(TAG + "There is no route match the path [" + postcard.getPath() + "], in group [" + postcard.getGroup() + "]");
             } else {
@@ -197,8 +148,8 @@ public class LogisticsCenter {
                     }
 
                     IRouteGroup iGroupInstance = groupMeta.getConstructor().newInstance();
-                    iGroupInstance.loadInto(routes);
-                    groupsIndex.remove(postcard.getGroup());
+                    iGroupInstance.loadInto(Warehouse.routes);
+                    Warehouse.groupsIndex.remove(postcard.getGroup());
 
                     if (ARouter.debuggable()) {
                         logger.debug(TAG, String.format(Locale.getDefault(), "The group [%s] has already been loaded, trigger by [%s]", postcard.getGroup(), postcard.getPath()));
@@ -226,12 +177,10 @@ public class LogisticsCenter {
                         setValue(postcard,
                                 params.getValue(),
                                 params.getKey(),
-                                resultMap.get(
-                                        getRight(params.getKey())
-                                ));
+                                resultMap.get(params.getKey()));
                     }
 
-                    // Save params name which need autoinject.
+                    // Save params name which need auto inject.
                     postcard.getExtras().putStringArray(ARouter.AUTO_INJECT, paramsType.keySet().toArray(new String[]{}));
                 }
 
@@ -243,13 +192,13 @@ public class LogisticsCenter {
                 case PROVIDER:  // if the route is provider, should find its instance
                     // Its provider, so it must be implememt IProvider
                     Class<? extends IProvider> providerMeta = (Class<? extends IProvider>) routeMeta.getDestination();
-                    IProvider instance = providers.get(providerMeta);
+                    IProvider instance = Warehouse.providers.get(providerMeta);
                     if (null == instance) { // There's no instance of this provider
                         IProvider provider;
                         try {
                             provider = providerMeta.getConstructor().newInstance();
                             provider.init(mContext);
-                            providers.put(providerMeta, provider);
+                            Warehouse.providers.put(providerMeta, provider);
                             instance = provider;
                         } catch (Exception e) {
                             throw new HandlerException("Init provider failed! " + e.getMessage());
@@ -258,6 +207,8 @@ public class LogisticsCenter {
                     postcard.setProvider(instance);
                     postcard.greenChannel();    // Provider should skip all of interceptors
                     break;
+                case FRAGMENT:
+                    postcard.greenChannel();    // Fragment needn't interceptors
                 default:
                     break;
             }
@@ -273,38 +224,37 @@ public class LogisticsCenter {
      * @param value    value
      */
     private static void setValue(Postcard postcard, Integer typeDef, String key, String value) {
-        try {
-            String currentKey = getLeft(key);
+        if (TextUtils.isEmpty(key) || TextUtils.isEmpty(value)) {
+            return;
+        }
 
+        try {
             if (null != typeDef) {
-                switch (typeDef) {
-                    case Consts.DEF_BOOLEAN:
-                        postcard.withBoolean(currentKey, Boolean.parseBoolean(value));
-                        break;
-                    case Consts.DEF_BYTE:
-                        postcard.withByte(currentKey, Byte.valueOf(value));
-                        break;
-                    case Consts.DEF_SHORT:
-                        postcard.withShort(currentKey, Short.valueOf(value));
-                        break;
-                    case Consts.DEF_INT:
-                        postcard.withInt(currentKey, Integer.valueOf(value));
-                        break;
-                    case Consts.DEF_LONG:
-                        postcard.withLong(currentKey, Long.valueOf(value));
-                        break;
-                    case Consts.DEF_FLOAT:
-                        postcard.withFloat(currentKey, Float.valueOf(value));
-                        break;
-                    case Consts.DEF_DOUBLE:
-                        postcard.withDouble(currentKey, Double.valueOf(value));
-                        break;
-                    case Consts.DEF_STRING:
-                    default:
-                        postcard.withString(currentKey, value);
+                if (typeDef == TypeKind.BOOLEAN.ordinal()) {
+                    postcard.withBoolean(key, Boolean.parseBoolean(value));
+                } else if (typeDef == TypeKind.BYTE.ordinal()) {
+                    postcard.withByte(key, Byte.valueOf(value));
+                } else if (typeDef == TypeKind.SHORT.ordinal()) {
+                    postcard.withShort(key, Short.valueOf(value));
+                } else if (typeDef == TypeKind.INT.ordinal()) {
+                    postcard.withInt(key, Integer.valueOf(value));
+                } else if (typeDef == TypeKind.LONG.ordinal()) {
+                    postcard.withLong(key, Long.valueOf(value));
+                } else if (typeDef == TypeKind.FLOAT.ordinal()) {
+                    postcard.withFloat(key, Float.valueOf(value));
+                } else if (typeDef == TypeKind.DOUBLE.ordinal()) {
+                    postcard.withDouble(key, Double.valueOf(value));
+                } else if (typeDef == TypeKind.STRING.ordinal()) {
+                    postcard.withString(key, value);
+                } else if (typeDef == TypeKind.PARCELABLE.ordinal()) {
+                    // TODO : How to description parcelable value with string?
+                } else if (typeDef == TypeKind.OBJECT.ordinal()) {
+                    postcard.withString(key, value);
+                } else {    // Compatible compiler sdk 1.0.3, in that version, the string type = 18
+                    postcard.withString(key, value);
                 }
             } else {
-                postcard.withString(currentKey, value);
+                postcard.withString(key, value);
             }
         } catch (Throwable ex) {
             logger.warning(Consts.TAG, "LogisticsCenter setValue failed! " + ex.getMessage());
@@ -312,117 +262,9 @@ public class LogisticsCenter {
     }
 
     /**
-     * Split key with |
-     *
-     * @param key raw key
-     * @return left key
-     */
-    public static String getLeft(String key) {
-        if (key.contains("|") && !key.endsWith("|")) {
-            return key.substring(0, key.indexOf("|"));
-        } else {
-            return key;
-        }
-    }
-
-    /**
-     * Split key with |
-     *
-     * @param key raw key
-     * @return right key
-     */
-    private static String getRight(String key) {
-        if (key.contains("|") && !key.startsWith("|")) {
-            return key.substring(key.indexOf("|") + 1);
-        } else {
-            return key;
-        }
-    }
-
-    /**
-     * Start interceptions, if its not from green channal.
-     *
-     * @param postcard routeMetas.
-     */
-    public static void interceptions(final Postcard postcard, final InterceptorCallback callback) throws HandlerException {
-        if (CollectionUtils.isNotEmpty(interceptors)) {
-
-            checkInterceptorsInitStatus();
-
-            if (!interceptorHasInit) {
-                callback.onInterrupt(new HandlerException("Interceptors initialization takes too much time."));
-                return;
-            }
-
-            executor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    CancelableCountDownLatch interceptorCounter = new CancelableCountDownLatch(interceptors.size());
-                    try {
-                        _excute(0, interceptorCounter, postcard);
-                        interceptorCounter.await(postcard.getTimeout(), TimeUnit.SECONDS);
-                        if (interceptorCounter.getCount() > 0) {    // Cancel the navigation this time, if it hasn't return anythings.
-                            callback.onInterrupt(new HandlerException("The interceptor processing timed out."));
-                        } else if (null != postcard.getTag()) {    // Maybe some exception in the tag.
-                            callback.onInterrupt(new HandlerException(postcard.getTag().toString()));
-                        } else {
-                            callback.onContinue(postcard);
-                        }
-                    } catch (Exception e) {
-                        callback.onInterrupt(e);
-                    }
-                }
-            });
-        } else {
-            callback.onContinue(postcard);
-        }
-    }
-
-    /**
-     * Excute interceptor
-     *
-     * @param index    current interceptor index
-     * @param counter  interceptor counter
-     * @param postcard routeMeta
-     */
-    private static void _excute(final int index, final CancelableCountDownLatch counter, final Postcard postcard) {
-        if (index < interceptors.size()) {
-            IInterceptor iInterceptor = interceptors.get(index);
-            iInterceptor.process(postcard, new InterceptorCallback() {
-                @Override
-                public void onContinue(Postcard postcard) {
-                    // Last interceptor excute over with no exception.
-                    counter.countDown();
-                    _excute(index + 1, counter, postcard);  // When counter is down, it will be execute continue ,but index bigger than interceptors size, then U know.
-                }
-
-                @Override
-                public void onInterrupt(Throwable exception) {
-                    // Last interceptor excute over with fatal exception.
-
-                    postcard.setTag(null == exception ? new HandlerException("No message.") : exception.getMessage());    // save the exception message for backup.
-                    counter.cancel();
-                    // Be attention, maybe the thread in callback has been changed,
-                    // then the catch block(L207) will be invalid.
-                    // The worst is the thread changed to main thread, then the app will be crash, if you throw this exception!
-//                    if (!Looper.getMainLooper().equals(Looper.myLooper())) {    // You shouldn't throw the exception if the thread is main thread.
-//                        throw new HandlerException(exception.getMessage());
-//                    }
-                }
-            });
-        }
-    }
-
-    /**
      * Suspend bussiness, clear cache.
      */
     public static void suspend() {
-        routes.clear();
-        groupsIndex.clear();
-        providers.clear();
-        providersIndex.clear();
-        interceptors.clear();
-        interceptorsIndex.clear();
-        interceptorHasInit = false;
+        Warehouse.clear();
     }
 }

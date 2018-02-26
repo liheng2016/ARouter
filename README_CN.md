@@ -1,423 +1,424 @@
+## English version is being re-translated, coming soon...
+
 ```
-    Android平台中对页面、服务提供路由功能的中间件
+    Android平台中对页面、服务提供路由功能的中间件，我的目标是 —— 简单且够用。
 ```
 
-#### Look at here
+##### [![Join the chat at https://gitter.im/alibaba/ARouter](https://badges.gitter.im/alibaba/ARouter.svg)](https://gitter.im/alibaba/ARouter?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge) [![Hex.pm](https://img.shields.io/hexpm/l/plug.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-##### [Demo apk](http://public.cdn.zhilong.me/app-debug.apk)
-##### [![Join the chat at https://gitter.im/alibaba/ARouter](https://badges.gitter.im/alibaba/ARouter.svg)](https://gitter.im/alibaba/ARouter?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+---
 
 #### 最新版本
 
-###### arouter-annotation : [![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-annotation/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-annotation/_latestVersion)
-###### arouter-compiler : [![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-compiler/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-compiler/_latestVersion)
-###### arouter-api : [![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-api/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-api/_latestVersion)
+模块|arouter-api|arouter-compiler|arouter-annotation
+---|---|---|---
+最新版本|[![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-api/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-api/_latestVersion)|[![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-compiler/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-compiler/_latestVersion)|[![Download](https://api.bintray.com/packages/zhi1ong/maven/arouter-annotation/images/download.svg)](https://bintray.com/zhi1ong/maven/arouter-annotation/_latestVersion)
 
-#### Gradle依赖
-```
-dependencies {
-    apt 'com.alibaba:arouter-compiler:x.x.x'
-    compile 'com.alibaba:arouter-api:x.x.x'
-}
-```
+#### Demo展示
 
-![Demo gif](https://raw.githubusercontent.com/alibaba/ARouter/master/demo/arouter-demo.gif)
+##### [Demo apk下载](https://github.com/alibaba/ARouter/blob/develop/demo/arouter-demo.apk)、[Demo Gif](https://raw.githubusercontent.com/alibaba/ARouter/master/demo/arouter-demo.gif)
 
 #### 一、功能介绍
-1. **支持直接解析URL进行跳转、参数按类型解析，支持Java基本类型**
-2. 支持应用内的标准页面跳转，API接近Android原生接口
-3. **支持多模块工程中使用**
-4. **支持跳转过程中插入自定义拦截逻辑，自定义拦截顺序**
-5. **支持服务托管，通过ByName,ByType两种方式获取服务实例**
-6. 映射关系按组分类、多级管理，按需初始化，减少内存占用提高查询效率(*)
-7. 支持用户指定全局降级与局部降级策略
-8. 被ARouter管理的页面、拦截器、服务均无需主动注册到ARouter
-9. 页面参数以及服务均可以自动注入，无需主动获取
+1. **支持直接解析标准URL进行跳转，并自动注入参数到目标页面中**
+2. **支持多模块工程使用**
+3. **支持添加多个拦截器，自定义拦截顺序**
+4. **支持依赖注入，可单独作为依赖注入框架使用**
+5. **支持InstantRun**
+6. **支持MultiDex**(Google方案)
+7. 映射关系按组分类、多级管理，按需初始化
+8. 支持用户指定全局降级与局部降级策略
+9. 页面、拦截器、服务等组件均自动注册到框架
+10. 支持多种方式配置转场动画
+11. 支持获取Fragment
+12. 完全支持Kotlin以及混编(配置见文末 其他#5)
 
-#### 二、不支持的功能
-1. 自定义URL解析规则(考虑支持)
-2. 不能动态加载代码模块和添加路由规则(考虑支持)
-3. 多路径支持(不想支持，貌似是导致各种混乱的起因)
-4. 生成映射关系文档(正在支持)
-
-#### 三、典型应用场景
+#### 二、典型应用
 1. 从外部URL映射到内部页面，以及参数传递与解析
 2. 跨模块页面跳转，模块间解耦
 3. 拦截跳转过程，处理登陆、埋点等逻辑
-4. 跨模块API调用，模块间解耦(注册ARouter服务的形式，通过接口互相调用)
+4. 跨模块API调用，通过控制反转来做组件解耦
 
-#### 四、基础功能
+#### 三、基础功能
 1. 添加依赖和配置
+``` gradle
+android {
+    defaultConfig {
+	...
+	javaCompileOptions {
+	    annotationProcessorOptions {
+		arguments = [ moduleName : project.getName() ]
+	    }
+	}
+    }
+}
 
-        // 如gradle plugin >= 2.2，可以使用annotationProcessor，配置方法见文末'其他#4'
-		apply plugin: 'com.neenbedankt.android-apt'
-
-        buildscript {
-            repositories {
-                jcenter()
-            }
-
-            dependencies {
-                classpath 'com.neenbedankt.gradle.plugins:android-apt:1.4'
-            }
-        }
-
-        apt {
-            arguments {
-                moduleName project.getName();
-            }
-        }
-
-        dependencies {
-            compile 'com.alibaba:arouter-api:x.x.x'
-            apt 'com.alibaba:arouter-compiler:x.x.x'
-            ...
-        }
+dependencies {
+    // 替换成最新版本, 需要注意的是api
+    // 要与compiler匹配使用，均使用最新版可以保证兼容
+    compile 'com.alibaba:arouter-api:x.x.x'
+    annotationProcessor 'com.alibaba:arouter-compiler:x.x.x'
+    ...
+}
+// 旧版本gradle插件(< 2.2)，可以使用apt插件，配置方法见文末'其他#4'
+// Kotlin配置参考文末'其他#5'
+```
 
 2. 添加注解
-
-		// 在支持路由的页面、服务上添加注解(必选)
-		// 这是最小化配置，后面有详细配置, 这里的路径需要注意的是至少需要有两级，/xx/xx
-        // 第一段用于分组，后面会详细提到
-		@Route(path = "/test/1")
-		public class YourActivity extend Activity {
-		    ...
-		}
+``` java
+// 在支持路由的页面上添加注解(必选)
+// 这里的路径需要注意的是至少需要有两级，/xx/xx
+@Route(path = "/test/activity")
+public class YourActivity extend Activity {
+    ...
+}
+```
 
 3. 初始化SDK
-
-        ARouter.init(mApplication); // 尽可能早，推荐在Application中初始化
+``` java
+if (isDebug()) {           // 这两行必须写在init之前，否则这些配置在init过程中将无效
+    ARouter.openLog();     // 打印日志
+    ARouter.openDebug();   // 开启调试模式(如果在InstantRun模式下运行，必须开启调试模式！线上版本需要关闭,否则有安全风险)
+}
+ARouter.init(mApplication); // 尽可能早，推荐在Application中初始化
+```
 
 4. 发起路由操作
+``` java
+// 1. 应用内简单的跳转(通过URL跳转在'进阶用法'中)
+ARouter.getInstance().build("/test/activity").navigation();
 
-		// 1. 应用内简单的跳转(通过URL跳转在'中阶使用'中)
-		ARouter.getInstance().build("/test/1").navigation();
-
-		// 2. 跳转并携带参数
-		ARouter.getInstance().build("/test/1")
-					.withLong("key1", 666L)
-					.withString("key3", "888")
-					.navigation();
+// 2. 跳转并携带参数
+ARouter.getInstance().build("/test/1")
+			.withLong("key1", 666L)
+			.withString("key3", "888")
+			.withObject("key4", new Test("Jack", "Rose"))
+			.navigation();
+```
 
 5. 添加混淆规则(如果使用了Proguard)
+``` 
+-keep public class com.alibaba.android.arouter.routes.**{*;}
+-keep class * implements com.alibaba.android.arouter.facade.template.ISyringe{*;}
 
-        -keep public class com.alibaba.android.arouter.routes.**{*;}
-        -keep class * implements com.alibaba.android.arouter.facade.template.ISyringe{*;}
+# 如果使用了 byType 的方式获取 Service，需添加下面规则，保护接口
+-keep interface * implements com.alibaba.android.arouter.facade.template.IProvider
 
-#### 五、进阶用法
+# 如果使用了 单类注入，即不定义接口实现 IProvider，需添加下面规则，保护实现
+-keep class * implements com.alibaba.android.arouter.facade.template.IProvider
+```
+
+#### 四、进阶用法
 1. 通过URL跳转
+``` java
+// 新建一个Activity用于监听Schame事件,之后直接把url传递给ARouter即可
+public class SchameFilterActivity extends Activity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+	super.onCreate(savedInstanceState);
 
-        // 新建一个Activity用于监听Schame事件
-        // 监听到Schame事件之后直接传递给ARouter即可
-        // http://www.example.com/test/1
-        public class SchameFilterActivity extends Activity {
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-                super.onCreate(savedInstanceState);
+	Uri uri = getIntent().getData();
+	ARouter.getInstance().build(uri).navigation();
+	finish();
+    }
+}
+```
 
-                Uri uri = getIntent().getData();
-                ARouter.getInstance().build(uri).navigation();
-                finish();
-            }
-        }
+AndroidManifest.xml
+``` xml
+<activity android:name=".activity.SchameFilterActivity">
+	<!-- Schame -->
+	<intent-filter>
+	    <data
+		android:host="m.aliyun.com"
+		android:scheme="arouter"/>
 
-        // AndroidManifest.xml
-        <activity android:name=".activity.SchameFilterActivity">
-                <!-- Schame -->
-                <intent-filter>
-                    <data
-                        android:host="m.aliyun.com"
-                        android:scheme="arouter"/>
+	    <action android:name="android.intent.action.VIEW"/>
 
-                    <action android:name="android.intent.action.VIEW"/>
+	    <category android:name="android.intent.category.DEFAULT"/>
+	    <category android:name="android.intent.category.BROWSABLE"/>
+	</intent-filter>
+</activity>
+```
 
-                    <category android:name="android.intent.category.DEFAULT"/>
-                    <category android:name="android.intent.category.BROWSABLE"/>
-                </intent-filter>
+2. 解析URL中的参数
+``` java
+// 为每一个参数声明一个字段，并使用 @Autowired 标注
+// URL中不能传递Parcelable类型数据，通过ARouter api可以传递Parcelable对象
+@Route(path = "/test/activity")
+public class Test1Activity extends Activity {
+    @Autowired
+    public String name;
+    @Autowired
+    int age;
+    @Autowired(name = "girl") // 通过name来映射URL中的不同参数
+    boolean boy;
+    @Autowired
+    TestObj obj;    // 支持解析自定义对象，URL中使用json传递
 
-                <!-- App Links -->
-                <intent-filter android:autoVerify="true">
-                    <action android:name="android.intent.action.VIEW"/>
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+	super.onCreate(savedInstanceState);
+	ARouter.getInstance().inject(this);
 
-                    <category android:name="android.intent.category.DEFAULT"/>
-                    <category android:name="android.intent.category.BROWSABLE"/>
+	// ARouter会自动对字段进行赋值，无需主动获取
+	Log.d("param", name + age + boy);
+    }
+}
 
-                    <data
-                        android:host="m.aliyun.com"
-                        android:scheme="http"/>
-                    <data
-                        android:host="m.aliyun.com"
-                        android:scheme="https"/>
-                </intent-filter>
-        </activity>
 
-2. 使用ARouter自动注入参数类型
+// 如果需要传递自定义对象，需要实现 SerializationService,并使用@Route注解标注(方便用户自行选择序列化方式)，例如：
+@Route(path = "/service/json")
+public class JsonServiceImpl implements SerializationService {
+    @Override
+    public void init(Context context) {
 
-        // 需要解析的参数上添加 @Autowired 注解
-        @Route(path = "/test/1")
-        public class Test1Activity extends Activity {
-            @Autowired                   // 声明之后，ARouter会从URL中解析对应名字的参数，并按照类型存入Bundle
-            public String name;
-            @Autowired
-            private int age;
-            @Autowired(name = "girl")   // 可以通过name来映射URL中的不同参数
-            private boolean boy;
+    }
 
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-                super.onCreate(savedInstanceState);
+    @Override
+    public <T> T json2Object(String text, Class<T> clazz) {
+        return JSON.parseObject(text, clazz);
+    }
 
-                ARouter.getInstance().inject(this);
+    @Override
+    public String object2Json(Object instance) {
+        return JSON.toJSONString(instance);
+    }
+}
+```
 
-                Log.d("param", name + age + boy);
+3. 声明拦截器(拦截跳转过程，面向切面编程)
+``` java
+// 比较经典的应用就是在跳转过程中处理登陆事件，这样就不需要在目标页重复做登陆检查
+// 拦截器会在跳转之间执行，多个拦截器会按优先级顺序依次执行
+@Interceptor(priority = 8, name = "测试用拦截器")
+public class TestInterceptor implements IInterceptor {
+    @Override
+    public void process(Postcard postcard, InterceptorCallback callback) {
+	...
+	callback.onContinue(postcard);  // 处理完成，交还控制权
+	// callback.onInterrupt(new RuntimeException("我觉得有点异常"));      // 觉得有问题，中断路由流程
 
-                // 无需主动获取，ARouter会自动注入对应的参数
-                // name = getIntent().getStringExtra("name");
-                // age = getIntent().getIntExtra("age", -1);
-                // boy = getIntent().getBooleanExtra("girl", false);   // 注意：使用映射之后，要从Girl中获取，而不是boy
-            }
-        }
+	// 以上两种至少需要调用其中一种，否则不会继续路由
+    }
 
-3. ~~开启ARouter参数自动注入(实验性功能，不建议使用，正在开发保护策略) 新版本的依赖注入已经上线，无需以下配置~~
+    @Override
+    public void init(Context context) {
+	// 拦截器的初始化，会在sdk初始化的时候调用该方法，仅会调用一次
+    }
+}
+```
 
-        // 首先在Application中重写 attachBaseContext方法，并加入ARouter.attachBaseContext();
-        @Override
-        protected void attachBaseContext(Context base) {
-           super.attachBaseContext(base);
+4. 处理跳转结果
+``` java
+// 使用两个参数的navigation方法，可以获取单次跳转的结果
+ARouter.getInstance().build("/test/1").navigation(this, new NavigationCallback() {
+    @Override
+    public void onFound(Postcard postcard) {
+      ...
+    }
 
-           ARouter.attachBaseContext();
-        }
+    @Override
+    public void onLost(Postcard postcard) {
+	...
+    }
+});
+```
 
-        // 设置ARouter的时候，开启自动注入
-        ARouter.enableAutoInject();
+5. 自定义全局降级策略
+``` java
+// 实现DegradeService接口，并加上一个Path内容任意的注解即可
+@Route(path = "/xxx/xxx")
+public class DegradeServiceImpl implements DegradeService {
+  @Override
+  public void onLost(Context context, Postcard postcard) {
+	// do something.
+  }
 
-        // 至此，Activity中的属性，将会由ARouter自动注入，无需 getIntent().getStringExtra("xxx")等等
+  @Override
+  public void init(Context context) {
 
-4. 声明拦截器(拦截跳转过程，面向切面搞事情)
+  }
+}
+```
 
-        // 比较经典的应用就是在跳转过程中处理登陆事件，这样就不需要在目标页重复做登陆检查
+6. 为目标页面声明更多信息
+``` java
+// 我们经常需要在目标页面中配置一些属性，比方说"是否需要登陆"之类的
+// 可以通过 Route 注解中的 extras 属性进行扩展，这个属性是一个 int值，换句话说，单个int有4字节，也就是32位，可以配置32个开关
+// 剩下的可以自行发挥，通过字节操作可以标识32个开关，通过开关标记目标页面的一些属性，在拦截器中可以拿到这个标记进行业务逻辑判断
+@Route(path = "/test/activity", extras = Consts.XXXX)
+```
 
-        // 拦截器会在跳转之间执行，多个拦截器会按优先级顺序依次执行
-        @Interceptor(priority = 666, name = "测试用拦截器")
-        public class TestInterceptor implements IInterceptor {
-            /**
-             * The operation of this interceptor.
-             *
-             * @param postcard meta
-             * @param callback cb
-             */
-            @Override
-            public void process(Postcard postcard, InterceptorCallback callback) {
-                ...
+7. 通过依赖注入解耦:服务管理(一) 暴露服务
+``` java
+// 声明接口,其他组件通过接口来调用服务
+public interface HelloService extends IProvider {
+    String sayHello(String name);
+}
 
-                callback.onContinue(postcard);  // 处理完成，交还控制权
-                // callback.onInterrupt(new RuntimeException("我觉得有点异常"));      // 觉得有问题，中断路由流程
+// 实现接口
+@Route(path = "/service/hello", name = "测试服务")
+public class HelloServiceImpl implements HelloService {
 
-                // 以上两种至少需要调用其中一种，否则会超时跳过
-            }
+    @Override
+    public String sayHello(String name) {
+	return "hello, " + name;
+    }
 
-            /**
-             * Do your init work in this method, it well be call when processor has been load.
-             *
-             * @param context ctx
-             */
-            @Override
-            public void init(Context context) {
+    @Override
+    public void init(Context context) {
 
-            }
-        }
+    }
+}
+```
 
-5. 处理跳转结果
+9. 通过依赖注入解耦:服务管理(二) 发现服务
+``` java
+public class Test {
+    @Autowired
+    HelloService helloService;
 
-		// 通过两个参数的navigation方法，可以获取单次跳转的结果
-		ARouter.getInstance().build("/test/1").navigation(this, new NavigationCallback() {
-            @Override
-            public void onFound(Postcard postcard) {
-			      ...
-            }
+    @Autowired(name = "/service/hello")
+    HelloService helloService2;
 
-            @Override
-            public void onLost(Postcard postcard) {
-                ...
-            }
-        });
+    HelloService helloService3;
 
-6. 自定义全局降级策略
+    HelloService helloService4;
 
-			// 实现DegradeService接口，并加上一个Path内容任意的注解即可
-	       @Route(path = "/xxx/xxx") // 必须标明注解
-			public class DegradeServiceImpl implements DegradeService {
-			  /**
-			   * Router has lost.
-			   *
-			   * @param postcard meta
-			   */
-			  @Override
-			  public void onLost(Context context, Postcard postcard) {
-			        // do something.
-			  }
+    public Test() {
+	ARouter.getInstance().inject(this);
+    }
 
-			  /**
-			   * Do your init work in this method, it well be call when processor has been load.
-			   *
-			   * @param context ctx
-			   */
-			  @Override
-			  public void init(Context context) {
+    public void testService() {
+	 // 1. (推荐)使用依赖注入的方式发现服务,通过注解标注字段,即可使用，无需主动获取
+	 // Autowired注解中标注name之后，将会使用byName的方式注入对应的字段，不设置name属性，会默认使用byType的方式发现服务(当同一接口有多个实现的时候，必须使用byName的方式发现服务)
+	helloService.sayHello("Vergil");
+	helloService2.sayHello("Vergil");
 
-			  }
-			}
+	// 2. 使用依赖查找的方式发现服务，主动去发现服务并使用，下面两种方式分别是byName和byType
+	helloService3 = ARouter.getInstance().navigation(HelloService.class);
+	helloService4 = (HelloService) ARouter.getInstance().build("/service/hello").navigation();
+	helloService3.sayHello("Vergil");
+	helloService4.sayHello("Vergil");
+    }
+}
+```
 
-7. 为目标页面声明更多信息
-
-		// 我们经常需要在目标页面中配置一些属性，比方说"是否需要登陆"之类的
-		// 可以通过 Route 注解中的 extras 属性进行扩展，这个属性是一个 int值，换句话说，单个int有4字节，也就是32位，可以配置32个开关
-		// 剩下的可以自行发挥，通过字节操作可以标识32个开关，通过开关标记目标页面的一些属性，在拦截器中可以拿到这个标记进行业务逻辑判断
-		@Route(path = "/test/1", extras = Consts.XXXX)
-
-8. 使用ARouter管理服务(一) 暴露服务
-
-        /**
-         * 声明接口
-         */
-        public interface IService extends IProvider {
-            String hello(String name);
-        }
-
-        /**
-         * 实现接口
-         */
-        @Route(path = "/service/1", name = "测试服务")
-        public class ServiceImpl implements IService {
-
-            @Override
-            public String hello(String name) {
-                return "hello, " + name;
-            }
-
-            /**
-             * Do your init work in this method, it well be call when processor has been load.
-             *
-             * @param context ctx
-             */
-            @Override
-            public void init(Context context) {
-
-            }
-        }
-
-9. 使用ARouter管理服务(二) 发现服务
-
-        1. 通过依赖查找获取服务 ：可以通过两种API来获取Service，分别是ByName、ByType
-        IService service = ARouter.getInstance().navigation(IService.class);    //  ByType
-        IService service = (IService) ARouter.getInstance().build("/service/1").navigation(); //  ByName
-
-        service.hello("zz");
-
-        2. 注意：推荐使用ByName方式获取Service，ByType这种方式写起来比较方便，但如果存在多实现的情况时，SDK不保证能获取到你想要的实现
-
-        3. 通过依赖注入的方式获取服务 ：依赖注入的方式需要注意，在使用前需要调用一次 ARouter.getInstance().inject(this);
-
-        @Autowired
-        IService service;
-
-        service.hello("zz");
-
-10. 使用ARouter管理服务(三) 管理依赖
-
-            可以通过ARouter service包装您的业务逻辑或者sdk，在service的init方法中初始化您的sdk，不同的sdk使用ARouter的service进行调用，
-        每一个service在第一次使用的时候会被初始化，即调用init方法。
-            这样就可以告别各种乱七八糟的依赖关系的梳理，只要能调用到这个service，那么这个service中所包含的sdk等就已经被初始化过了，完全不需要
-        关心各个sdk的初始化顺序。
-
-11. 控制反转的支持
-        
-        ARouter现已经全面支持Ioc特性，可以通过依赖注入(DI)或者依赖查找的方式获取Intent参数以及服务，大幅度减少开发工作量，合理运用Service，可以达到替换Dagger框架的效果。
-
-#### 六、更多功能
+#### 五、更多功能
 
 1. 初始化中的其他设置
-
-		ARouter.openLog();	// 开启日志
-		ARouter.printStackTrace(); // 打印日志的时候打印线程堆栈
+``` java
+ARouter.openLog(); // 开启日志
+ARouter.openDebug(); // 使用InstantRun的时候，需要打开该开关，上线之后关闭，否则有安全风险
+ARouter.printStackTrace(); // 打印日志的时候打印线程堆栈
+```
 
 2. 详细的API说明
+``` java
+// 构建标准的路由请求
+ARouter.getInstance().build("/home/main").navigation();
 
-		// 构建标准的路由请求
-		ARouter.getInstance().build("/home/main").navigation();
+// 构建标准的路由请求，并指定分组
+ARouter.getInstance().build("/home/main", "ap").navigation();
 
-		// 构建标准的路由请求，并指定分组
-		ARouter.getInstance().build("/home/main", "ap").navigation();
+// 构建标准的路由请求，通过Uri直接解析
+Uri uri;
+ARouter.getInstance().build(uri).navigation();
 
-		// 构建标准的路由请求，通过Uri直接解析
-		Uri uri;
-		ARouter.getInstance().build(uri).navigation();
+// 构建标准的路由请求，startActivityForResult
+// navigation的第一个参数必须是Activity，第二个参数则是RequestCode
+ARouter.getInstance().build("/home/main", "ap").navigation(this, 5);
 
-		// 构建标准的路由请求，startActivityForResult
-		// navigation的第一个参数必须是Activity，第二个参数则是RequestCode
-		ARouter.getInstance().build("/home/main", "ap").navigation(this, 5);
+// 直接传递Bundle
+Bundle params = new Bundle();
+ARouter.getInstance()
+	.build("/home/main")
+	.with(params)
+	.navigation();
 
-		// 直接传递Bundle
-		Bundle params = new Bundle();
-		ARouter.getInstance()
-					.build("/home/main")
-					.with(params)
-					.navigation();
+// 指定Flag
+ARouter.getInstance()
+	.build("/home/main")
+	.withFlags();
+	.navigation();
 
-		// 指定Flag
-		ARouter.getInstance()
-					.build("/home/main")
-					.withFlags();
-					.navigation();
+// 获取Fragment
+Fragment fragment = (Fragment) ARouter.getInstance().build("/test/fragment").navigation();
+					
+// 对象传递
+ARouter.getInstance()
+	.withObject("key", new TestObj("Jack", "Rose"))
+	.navigation();
 
-		// 觉得接口不够多，可以直接拿出Bundle赋值
-		ARouter.getInstance()
-		            .build("/home/main")
-		            .getExtra();
+// 觉得接口不够多，可以直接拿出Bundle赋值
+ARouter.getInstance()
+	    .build("/home/main")
+	    .getExtra();
 
-	    // 使用绿色通道(跳过所有的拦截器)
-	    ARouter.getInstance().build("/home/main").greenChannal().navigation();
+// 转场动画(常规方式)
+ARouter.getInstance()
+    .build("/test/activity2")
+    .withTransition(R.anim.slide_in_bottom, R.anim.slide_out_bottom)
+    .navigation(this);
 
-	    // 使用自己的日志工具打印日志
-	    ARouter.setLogger();
+// 转场动画(API16+)
+ActivityOptionsCompat compat = ActivityOptionsCompat.
+    makeScaleUpAnimation(v, v.getWidth() / 2, v.getHeight() / 2, 0, 0);
+
+// ps. makeSceneTransitionAnimation 使用共享元素的时候，需要在navigation方法中传入当前Activity
+
+ARouter.getInstance()
+	.build("/test/activity2")
+	.withOptionsCompat(compat)
+	.navigation();
+        
+// 使用绿色通道(跳过所有的拦截器)
+ARouter.getInstance().build("/home/main").greenChannel().navigation();
+
+// 使用自己的日志工具打印日志
+ARouter.setLogger();
+```
 
 3. 获取原始的URI
-
-        String uriStr = getIntent().getStringExtra(ARouter.RAW_URI);
+``` java
+String uriStr = getIntent().getStringExtra(ARouter.RAW_URI);
+```
 
 4. 重写跳转URL
+``` java
+// 实现PathReplaceService接口，并加上一个Path内容任意的注解即可
+@Route(path = "/xxx/xxx") // 必须标明注解
+public class PathReplaceServiceImpl implements PathReplaceService {
+    /**
+     * For normal path.
+     *
+     * @param path raw path
+     */
+    String forString(String path) {
+	return path;    // 按照一定的规则处理之后返回处理后的结果
+    }
 
-       	// 实现PathReplaceService接口，并加上一个Path内容任意的注解即可，ARouter会直接处理经过用户处理之后的路径
-        @Route(path = "/xxx/xxx") // 必须标明注解
-        public class PathReplaceServiceImpl implements DegradeService {
-            /**
-             * For normal path.
-             *
-             * @param path raw path
-             */
-            String forString(String path) {
-                return path;    // 按照一定的规则处理之后返回处理后的结果
-            }
+   /**
+    * For uri type.
+    *
+    * @param uri raw uri
+    */
+   Uri forUri(Uri uri) {
+	return url;    // 按照一定的规则处理之后返回处理后的结果
+   }
+}
+```
 
-            /**
-             * For uri type.
-             *
-             * @param uri raw uri
-            */
-            Uri forUri(Uri uri) {
-                return url;    // 按照一定的规则处理之后返回处理后的结果
-            }
-         }
-
-#### 七、其他
+#### 六、其他
 
 1. 路由中的分组概念
 
 	- SDK中针对所有的路径(/test/1 /test/2)进行分组，分组只有在分组中的某一个路径第一次被访问的时候，该分组才会被初始化
 	- 可以通过 @Route 注解主动指定分组，否则使用路径中第一段字符串(/*/)作为分组
 	- 注意：一旦主动指定分组之后，应用内路由需要使用 ARouter.getInstance().build(path, group) 进行跳转，手动指定分组，否则无法找到
-
-	        @Route(path = "/test/1", group = "app")
+``` java
+@Route(path = "/test/1", group = "app")
+```
 
 2. 拦截器和服务的异同
 
@@ -428,32 +429,54 @@ dependencies {
 3. Jack 编译链的支持
 
 	- ~~因为不想让用户主动设置一堆乱七八糟的参数，在获取模块名的时候使用javac的api，使用了Jack之后没有了javac，只能让用户稍稍动动手了~~
-	- 因为一些其他原因，现在任何情况下都需要在build.gradle中配置moduleName了。。。。
+	- 现在任何情况下都需要在build.gradle中配置moduleName了。。。。
 
-4. annotationProcessor的配置方式
+4. 旧版本gradle插件的配置方式
+``` gradle
+apply plugin: 'com.neenbedankt.android-apt'
 
-        // 如果使用gradle plugin >= 2.2 可以不依赖android-apt，按照如下配置方法
-        android {
-            compileSdkVersion Integer.parseInt(COMPILE_SDK_VERSION)
-            buildToolsVersion BUILDTOOLS_VERSION
+buildscript {
+    repositories {
+	jcenter()
+    }
 
-            defaultConfig {
-                ...
-                javaCompileOptions {
-                    annotationProcessorOptions {
-                        arguments = [ moduleName : project.getName() ]
-                    }
-                }
-            }
-        }
+    dependencies {
+	classpath 'com.neenbedankt.gradle.plugins:android-apt:1.4'
+    }
+}
 
-        dependencies {
-            compile 'com.alibaba:arouter-api:x.x.x'
-            annotationProcessor 'com.alibaba:arouter-compiler:x.x.x'
-            ...
-        }
+apt {
+    arguments {
+	moduleName project.getName();
+    }
+}
 
-#### 八、Q&A
+dependencies {
+    compile 'com.alibaba:arouter-api:x.x.x'
+    apt 'com.alibaba:arouter-compiler:x.x.x'
+    ...
+}
+```
+
+5. Kotlin项目中的配置方式
+```
+// 可以参考 module-kotlin 模块中的写法
+apply plugin: 'kotlin-kapt'
+
+kapt {
+    arguments {
+        arg("moduleName", project.getName())
+    }
+}
+
+dependencies {
+    compile 'com.alibaba:arouter-api:x.x.x'
+    kapt 'com.alibaba:arouter-compiler:x.x.x'
+    ...
+}
+```
+
+#### 七、Q&A
 
 1. "W/ARouter::: ARouter::No postcard![ ]"
 
@@ -472,12 +495,38 @@ dependencies {
         3. 检查编译打包日志，是否出现了形如 ARouter::Compiler >>> xxxxx 的日志，日志中会打印出发现的路由目标
         4. 启动App的时候，开启debug、log(openDebug/openLog), 查看映射表是否已经被扫描出来，形如 D/ARouter::: LogisticsCenter has already been loaded, GroupIndex[4]，GroupIndex > 0
 
-3. Instant Run
+3. 开启InstantRun之后无法跳转(高版本Gradle插件下无法跳转)？
+        
+     因为开启InstantRun之后，很多类文件不会放在原本的dex中，需要单独去加载，ARouter默认不会去加载这些文件，因为安全原因，只有在开启了openDebug之后
+     ARouter才回去加载InstantRun产生的文件，所以在以上的情况下，需要在init**之前**调用openDebug
+ 
+4. TransformException:java.util.zip.ZipException: duplicate entry ....
+ 
+     ARouter有按组加载的机制，关于分组可以参考 6-1 部分，ARouter允许一个module中存在多个分组，但是不允许多个module中存在相同的分组，会导致映射文件冲突
 
-    - 请注意，ARouter和Instant Run并没有任何关系，也不会互相干扰，但是在开启Instant Run的情况下，编译期生成的映射文件，可能不会被Instant Run加载到apk中，
-      而且在App没有重新初始化ARouter的情况下，ARouter并不会动态加载新生成的映射文件，如果新增注解，请全量编译并重新安装，鉴于开发中不会频繁添加注解，短期内不会
-      对这种场景进行优化。
+5. Kotlin类中的字段无法注入如何解决？
+    
+    首先，Kotlin中的字段是可以自动注入的，但是注入代码为了减少反射，使用的字段赋值的方式来注入的，Kotlin默认会生成set/get方法，并把属性设置为private
+    所以只要保证Kotlin中字段可见性不是private即可，简单解决可以在字段上添加 @JvmField 
 
-4. 沟通和交流
+6. 通过URL跳转之后，在intent中拿不到参数如何解决？
+    
+    需要注意的是，如果不使用自动注入，那么可以不写 `ARouter.getInstance().inject(this)`，但是需要取值的字段仍然需要标上 `@Autowired` 注解，因为
+    只有标上注解之后，ARouter才能知道以哪一种数据类型提取URL中的参数并放入Intent中，这样您才能在intent中获取到对应的参数
+    
+7. 新增页面之后，无法跳转？
+    
+    ARouter加载Dex中的映射文件会有一定耗时，所以ARouter会缓存映射文件，直到新版本升级(版本号或者versionCode变化)，而如果是开发版本(ARouter.openDebug())，
+    ARouter 每次启动都会重新加载映射文件，开发阶段一定要打开 Debug 功能
 
-    ![qq](https://raw.githubusercontent.com/alibaba/ARouter/master/demo/arouter-qq-addr.png)
+#### 八、其他
+
+1. 沟通和交流
+
+    1. 交流群1 (已满，请加2群)
+    
+        ![qq](https://raw.githubusercontent.com/alibaba/ARouter/master/demo/arouter-qq-addr.png)
+
+    2. 交流群2
+        
+        ![qq](https://raw.githubusercontent.com/alibaba/ARouter/master/demo/qq-qrcode-2.JPG)
